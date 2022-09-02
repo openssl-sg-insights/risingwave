@@ -137,7 +137,7 @@ impl<S: StateStore> MaterializeExecutor<S> {
                     todo!("https://github.com/risingwavelabs/risingwave/issues/6042")
                 }
                 Message::Chunk(chunk) => {
-                    self.state_table.write_chunk(chunk.clone());
+                    // self.state_table.write_chunk(chunk.clone());
                     Message::Chunk(chunk)
                 }
                 Message::Barrier(b) => {
