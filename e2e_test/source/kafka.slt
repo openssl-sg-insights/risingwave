@@ -207,6 +207,16 @@ create materialized source s14 (
   properties.bootstrap.server = '127.0.0.1:29092'
 ) row format debezium_json;
 
+
+statement ok
+create materialized source s15 with (
+  connector = 'kafka', 
+  topic = 'avro_c_schemaless_bin',
+  properties.bootstrap.server = '127.0.0.1:29092',
+  scan.startup.mode = 'earliest',
+  avro.schema_include = 'false'
+) row format avro message 'user' row schema location 'file:///risingwave/avro-complex-schema.avsc';
+
 statement ok
 flush;
 
@@ -364,6 +374,11 @@ select * from s14 order by id;
 2 chi t yyy@risingwave-labs.com
 3 mike t aaa@risingwave-labs.com
 
+query ITITT
+select id, code, timestamp, xfas, contacts, sex from s15;
+----
+100 abc 1473305798 {"(0,200,10.0.0.1)","(1,400,10.0.0.2)"} ({1xxx,2xxx},{1xxx,2xxx}) MALE
+
 statement ok
 drop materialized view source_mv1
 
@@ -393,3 +408,6 @@ drop source s13
 
 statement ok
 drop source s14
+
+statement ok
+drop source s15s

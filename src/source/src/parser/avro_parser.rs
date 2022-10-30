@@ -18,7 +18,7 @@ use std::future::Future;
 use std::path::Path;
 
 use apache_avro::types::Value;
-use apache_avro::{Reader, Schema};
+use apache_avro::{from_avro_datum, Reader, Schema};
 use chrono::{Datelike, NaiveDate};
 use itertools::Itertools;
 use risingwave_common::array::{ListValue, StructValue};
@@ -35,6 +35,7 @@ use url::Url;
 use crate::{SourceParser, SourceStreamChunkRowWriter, WriteGuard};
 
 const AVRO_SCHEMA_LOCATION_S3_REGION: &str = "region";
+const AVRO_INCLUDING_SCHEMA_KEY: &str = "avro.schema_include";
 
 pub fn unix_epoch_days() -> i32 {
     NaiveDate::from_ymd(1970, 1, 1).num_days_from_ce()
@@ -43,10 +44,17 @@ pub fn unix_epoch_days() -> i32 {
 #[derive(Debug)]
 pub struct AvroParser {
     schema: Schema,
+    including_schema: bool,
 }
 
 impl AvroParser {
     pub async fn new(schema_location: &str, props: HashMap<String, String>) -> Result<Self> {
+        let including_schema = props
+            .get(AVRO_INCLUDING_SCHEMA_KEY)
+            .unwrap_or(&"true".to_string())
+            .to_lowercase()
+            .eq("true");
+
         let url = Url::parse(schema_location).map_err(|e| {
             InternalError(format!("failed to parse url ({}): {}", schema_location, e))
         })?;
@@ -76,7 +84,10 @@ impl AvroParser {
                 )))),
             };
         if let Ok(schema) = arvo_schema {
-            Ok(Self { schema })
+            Ok(Self {
+                schema,
+                including_schema,
+            })
         } else {
             Err(arvo_schema.err().unwrap())
         }
@@ -258,29 +269,38 @@ fn from_avro_value(value: Value) -> Result<Datum> {
 }
 
 impl SourceParser for AvroParser {
-    fn parse(&self, payload: &[u8], writer: SourceStreamChunkRowWriter<'_>) -> Result<WriteGuard> {
-        match Reader::with_schema(&self.schema, payload) {
-            Ok(mut reader) => match reader.next() {
-                Some(Ok(Value::Record(fields))) => writer.insert(|column| {
-                    let tuple = fields.iter().find(|val| column.name.eq(&val.0)).unwrap();
-                    from_avro_value(tuple.1.clone()).map_err(|e| {
-                        tracing::error!(
-                            "failed to process value ({}): {}",
-                            String::from_utf8_lossy(payload),
-                            e
-                        );
+    fn parse(
+        &self,
+        mut payload: &[u8],
+        writer: SourceStreamChunkRowWriter<'_>,
+    ) -> Result<WriteGuard> {
+        let value = if self.including_schema {
+            let mut reader = Reader::with_schema(&self.schema, payload)
+                .map_err(|e| RwError::from(ProtocolError(e.to_string())))?;
+            reader.next()
+        } else {
+            Some(from_avro_datum(&self.schema, &mut payload, None))
+        };
+
+        match value {
+            Some(Ok(Value::Record(fields))) => writer.insert(|column| {
+                let tuple = fields.iter().find(|val| column.name.eq(&val.0)).unwrap();
+                from_avro_value(tuple.1.clone()).map_err(|e| {
+                    tracing::error!(
+                        "failed to process value ({}): {}",
+                        String::from_utf8_lossy(payload),
                         e
-                    })
-                }),
-                Some(Ok(_)) => Err(RwError::from(ProtocolError(
-                    "avro parse unexpected value".to_string(),
-                ))),
-                Some(Err(e)) => Err(RwError::from(ProtocolError(e.to_string()))),
-                None => Err(RwError::from(ProtocolError(
-                    "avro parse unexpected eof".to_string(),
-                ))),
-            },
-            Err(e) => Err(RwError::from(ProtocolError(e.to_string()))),
+                    );
+                    e
+                })
+            }),
+            Some(Ok(_)) => Err(RwError::from(ProtocolError(
+                "avro parse unexpected value".to_string(),
+            ))),
+            Some(Err(e)) => Err(RwError::from(ProtocolError(e.to_string()))),
+            None => Err(RwError::from(ProtocolError(
+                "avro parse unexpected eof".to_string(),
+            ))),
         }
     }
 }
