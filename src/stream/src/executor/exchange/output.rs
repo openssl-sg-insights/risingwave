@@ -166,11 +166,13 @@ pub fn new_output(
         Err(_) => false,
     };
 
-    let output = if is_local_address {
-        LocalOutput::new(down_id, tx).boxed()
-    } else {
-        RemoteOutput::new(down_id, tx).boxed()
-    };
+    // let output = if is_local_address {
+    //     LocalOutput::new(down_id, tx).boxed()
+    // } else {
+    //     RemoteOutput::new(down_id, tx).boxed()
+    // };
+
+    let output = RemoteOutput::new(down_id, tx).boxed();
 
     Ok(output)
 }
