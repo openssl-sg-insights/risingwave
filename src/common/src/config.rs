@@ -200,6 +200,9 @@ pub struct StorageConfig {
     /// Max sub compaction task numbers
     #[serde(default = "default::max_sub_compaction")]
     pub max_sub_compaction: u32,
+
+    #[serde(default = "default::share_buffer_split_compaction_group_enabled")]
+    pub share_buffer_split_compaction_group_enabled: bool,
 }
 
 impl Default for StorageConfig {
@@ -402,6 +405,10 @@ mod default {
 
     pub fn max_sub_compaction() -> u32 {
         4
+    }
+
+    pub fn share_buffer_split_compaction_group_enabled() -> bool {
+        true
     }
 
     pub mod developer {
