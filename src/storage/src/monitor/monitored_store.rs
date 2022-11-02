@@ -23,8 +23,6 @@ use tracing::error;
 
 use super::StateStoreMetrics;
 use crate::error::StorageResult;
-use crate::hummock::sstable_store::SstableStoreRef;
-use crate::hummock::{HummockStorage, SstableIdManagerRef};
 use crate::storage_value::StorageValue;
 use crate::store::*;
 use crate::{define_state_store_associated_type, StateStore, StateStoreIter};
@@ -260,16 +258,6 @@ where
                 .await
                 .inspect_err(|e| error!("Failed in clear_shared_buffer: {:?}", e))
         }
-    }
-}
-
-impl MonitoredStateStore<HummockStorage> {
-    pub fn sstable_store(&self) -> SstableStoreRef {
-        self.inner.sstable_store()
-    }
-
-    pub fn sstable_id_manager(&self) -> SstableIdManagerRef {
-        self.inner.sstable_id_manager().clone()
     }
 }
 

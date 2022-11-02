@@ -41,7 +41,7 @@ pub async fn sst_dump() -> anyhow::Result<()> {
     let version = hummock.inner().get_pinned_version().version();
 
     let table_data = load_table_schemas(&meta_client).await?;
-    let sstable_store = &*hummock.sstable_store();
+    let sstable_store = hummock.inner().sstable_store();
     for level in version.get_combined_levels() {
         for sstable_info in &level.table_infos {
             let id = sstable_info.id;
@@ -72,7 +72,7 @@ pub async fn sst_dump() -> anyhow::Result<()> {
             println!("Key Count: {}", sstable_meta.key_count);
             println!("Version: {}", sstable_meta.version);
 
-            print_blocks(id, &table_data, sstable_store, sstable_meta).await?;
+            print_blocks(id, &table_data, &sstable_store, sstable_meta).await?;
         }
     }
     hummock_opts.shutdown().await;

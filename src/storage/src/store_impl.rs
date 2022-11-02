@@ -29,9 +29,12 @@ use crate::hummock::{
 };
 use crate::memory::MemoryStateStore;
 use crate::monitor::{MonitoredStateStore as Monitored, ObjectStoreMetrics, StateStoreMetrics};
+#[cfg(debug_assertions)]
+use crate::store::StateStoreEnum;
 use crate::StateStore;
 
 /// The type erased [`StateStore`].
+#[cfg(not(debug_assertions))]
 #[derive(Clone, EnumAsInner)]
 pub enum StateStoreImpl {
     /// The Hummock state store, which operates on an S3-like service. URLs beginning with
@@ -51,15 +54,66 @@ pub enum StateStoreImpl {
     MemoryStateStore(Monitored<MemoryStateStore>),
 }
 
+#[cfg(debug_assertions)]
+pub type GenericStateStoreEnum = StateStoreEnum<HummockStorage, HummockStorageV1, MemoryStateStore>;
+
+#[cfg(debug_assertions)]
+#[derive(Clone, EnumAsInner)]
+pub enum StateStoreImpl {
+    HummockStateStore(Monitored<GenericStateStoreEnum>),
+    HummockStateStoreV1(Monitored<GenericStateStoreEnum>),
+    MemoryStateStore(Monitored<GenericStateStoreEnum>),
+}
+
 impl StateStoreImpl {
     pub fn shared_in_memory_store(state_store_metrics: Arc<StateStoreMetrics>) -> Self {
-        Self::MemoryStateStore(MemoryStateStore::shared().monitored(state_store_metrics))
+        #[cfg(not(debug_assertions))]
+        {
+            Self::MemoryStateStore(MemoryStateStore::shared().monitored(state_store_metrics))
+        }
+        #[cfg(debug_assertions)]
+        {
+            Self::MemoryStateStore(
+                GenericStateStoreEnum::Third(MemoryStateStore::shared())
+                    .monitored(state_store_metrics),
+            )
+        }
     }
 
     pub fn for_test() -> Self {
-        StateStoreImpl::MemoryStateStore(
-            MemoryStateStore::new().monitored(Arc::new(StateStoreMetrics::unused())),
-        )
+        #[cfg(not(debug_assertions))]
+        {
+            Self::MemoryStateStore(
+                MemoryStateStore::new().monitored(Arc::new(StateStoreMetrics::unused())),
+            )
+        }
+        #[cfg(debug_assertions)]
+        {
+            Self::MemoryStateStore(
+                GenericStateStoreEnum::Third(MemoryStateStore::new())
+                    .monitored(Arc::new(StateStoreMetrics::unused())),
+            )
+        }
+    }
+
+    pub fn as_hummock(&self) -> Option<&HummockStorage> {
+        #[cfg(not(debug_assertions))]
+        {
+            match self {
+                StateStoreImpl::HummockStateStore(s) => Some(s.inner()),
+                _ => None,
+            }
+        }
+        #[cfg(debug_assertions)]
+        {
+            match self {
+                StateStoreImpl::HummockStateStore(monitored) => match monitored.inner() {
+                    GenericStateStoreEnum::First(s) => Some(s),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
     }
 }
 
@@ -179,7 +233,16 @@ impl StateStoreImpl {
                     )
                     .await?;
 
-                    StateStoreImpl::HummockStateStore(inner.monitored(state_store_stats))
+                    #[cfg(not(debug_assertions))]
+                    {
+                        StateStoreImpl::HummockStateStore(inner.monitored(state_store_stats))
+                    }
+                    #[cfg(debug_assertions)]
+                    {
+                        StateStoreImpl::HummockStateStore(
+                            GenericStateStoreEnum::First(inner).monitored(state_store_stats),
+                        )
+                    }
                 } else {
                     let inner = HummockStorageV1::new(
                         config.clone(),
@@ -190,7 +253,16 @@ impl StateStoreImpl {
                     )
                     .await?;
 
-                    StateStoreImpl::HummockStateStoreV1(inner.monitored(state_store_stats))
+                    #[cfg(not(debug_assertions))]
+                    {
+                        StateStoreImpl::HummockStateStoreV1(inner.monitored(state_store_stats))
+                    }
+                    #[cfg(debug_assertions)]
+                    {
+                        StateStoreImpl::HummockStateStoreV1(
+                            GenericStateStoreEnum::Second(inner).monitored(state_store_stats),
+                        )
+                    }
                 }
             }
 

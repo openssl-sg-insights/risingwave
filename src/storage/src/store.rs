@@ -206,3 +206,150 @@ impl ReadOptions {
         }
     }
 }
+
+macro_rules! state_store_enum_sync_method_body {
+    ($state_store:expr, $method_name:ident $(, $args:expr)*) => {
+        {
+            match $state_store {
+                StateStoreEnum::First(e) => e.$method_name($($args, )*),
+                StateStoreEnum::Second(e) => e.$method_name($($args, )*),
+                StateStoreEnum::Third(e) => e.$method_name($($args, )*),
+            }
+        }
+    };
+}
+
+macro_rules! state_store_enum_async_method_body {
+    ($state_store:expr, $method_name:ident $(, $args:expr)*) => {
+        {
+            async move {
+                match $state_store {
+                    StateStoreEnum::First(e) => e.$method_name($($args, )*).await,
+                    StateStoreEnum::Second(e) => e.$method_name($($args, )*).await,
+                    StateStoreEnum::Third(e) => e.$method_name($($args, )*).await,
+                }
+            }
+        }
+    };
+}
+
+#[derive(Clone)]
+pub enum StateStoreEnum<S1, S2, S3> {
+    First(S1),
+    Second(S2),
+    Third(S3),
+}
+
+impl<
+        S1: StateStoreIter<Item = (Bytes, Bytes)>,
+        S2: StateStoreIter<Item = (Bytes, Bytes)>,
+        S3: StateStoreIter<Item = (Bytes, Bytes)>,
+    > StateStoreIter for StateStoreEnum<S1, S2, S3>
+{
+    type Item = (Bytes, Bytes);
+
+    type NextFuture<'a> = impl Future<Output = StorageResult<Option<Self::Item>>> + Send;
+
+    fn next(&mut self) -> Self::NextFuture<'_> {
+        state_store_enum_async_method_body!(self, next)
+    }
+}
+
+impl<S1: StateStore, S2: StateStore, S3: StateStore> StateStore for StateStoreEnum<S1, S2, S3> {
+    type Iter = StateStoreEnum<S1::Iter, S2::Iter, S3::Iter>;
+
+    define_state_store_associated_type!();
+
+    fn get<'a>(
+        &'a self,
+        key: &'a [u8],
+        check_bloom_filter: bool,
+        read_options: ReadOptions,
+    ) -> Self::GetFuture<'_> {
+        state_store_enum_async_method_body!(self, get, key, check_bloom_filter, read_options)
+    }
+
+    fn iter(
+        &self,
+        prefix_hint: Option<Vec<u8>>,
+        key_range: (Bound<Vec<u8>>, Bound<Vec<u8>>),
+        read_options: ReadOptions,
+    ) -> Self::IterFuture<'_> {
+        async move {
+            Ok(match self {
+                StateStoreEnum::First(s) => {
+                    StateStoreEnum::First(s.iter(prefix_hint, key_range, read_options).await?)
+                }
+                StateStoreEnum::Second(s) => {
+                    StateStoreEnum::Second(s.iter(prefix_hint, key_range, read_options).await?)
+                }
+                StateStoreEnum::Third(s) => {
+                    StateStoreEnum::Third(s.iter(prefix_hint, key_range, read_options).await?)
+                }
+            })
+        }
+    }
+
+    fn scan(
+        &self,
+        prefix_hint: Option<Vec<u8>>,
+        key_range: (Bound<Vec<u8>>, Bound<Vec<u8>>),
+        limit: Option<usize>,
+        read_options: ReadOptions,
+    ) -> Self::ScanFuture<'_> {
+        state_store_enum_async_method_body!(self, scan, prefix_hint, key_range, limit, read_options)
+    }
+
+    fn backward_scan(
+        &self,
+        key_range: (Bound<Vec<u8>>, Bound<Vec<u8>>),
+        limit: Option<usize>,
+        read_options: ReadOptions,
+    ) -> Self::BackwardScanFuture<'_> {
+        state_store_enum_async_method_body!(self, backward_scan, key_range, limit, read_options)
+    }
+
+    fn ingest_batch(
+        &self,
+        kv_pairs: Vec<(Bytes, StorageValue)>,
+        write_options: WriteOptions,
+    ) -> Self::IngestBatchFuture<'_> {
+        state_store_enum_async_method_body!(self, ingest_batch, kv_pairs, write_options)
+    }
+
+    fn backward_iter(
+        &self,
+        key_range: (Bound<Vec<u8>>, Bound<Vec<u8>>),
+        read_options: ReadOptions,
+    ) -> Self::BackwardIterFuture<'_> {
+        async move {
+            Ok(match self {
+                StateStoreEnum::First(s) => {
+                    StateStoreEnum::First(s.backward_iter(key_range, read_options).await?)
+                }
+                StateStoreEnum::Second(s) => {
+                    StateStoreEnum::Second(s.backward_iter(key_range, read_options).await?)
+                }
+                StateStoreEnum::Third(s) => {
+                    StateStoreEnum::Third(s.backward_iter(key_range, read_options).await?)
+                }
+            })
+        }
+    }
+
+    fn try_wait_epoch(&self, epoch: HummockReadEpoch) -> Self::WaitEpochFuture<'_> {
+        state_store_enum_async_method_body!(self, try_wait_epoch, epoch)
+    }
+
+    fn sync(&self, epoch: u64) -> Self::SyncFuture<'_> {
+        state_store_enum_async_method_body!(self, sync, epoch)
+    }
+
+    fn seal_epoch(&self, epoch: u64, is_checkpoint: bool) {
+        state_store_enum_sync_method_body!(self, seal_epoch, epoch, is_checkpoint)
+    }
+
+    fn clear_shared_buffer(&self) -> Self::ClearSharedBufferFuture<'_> {
+        state_store_enum_async_method_body!(self, clear_shared_buffer)
+    }
+}
